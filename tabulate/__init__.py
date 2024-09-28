@@ -1891,7 +1891,8 @@ def tabulate(
     ╘═══════════╧═══════════╛
 
     "colon_grid" is similar to "grid" but uses colons only to define
-    columnwise content alignment, with no whitespace padding:
+    columnwise content alignment, without whitespace padding,
+    similar to the alignment specification of Pandoc `grid_tables`:
 
     >>> print(tabulate([["spam", 41.9999], ["eggs", "451.0"]],
     ...                ["strings", "numbers"], "colon_grid"))
@@ -2647,7 +2648,7 @@ class _CustomTextWrap(textwrap.TextWrapper):
             else:  # A single reset code resets everything
                 self._active_codes = []
 
-        # Always ensure each line is color terminted if any colors are
+        # Always ensure each line is color terminated if any colors are
         # still active, otherwise colors will bleed into other cells on the console
         if len(self._active_codes) > 0:
             new_line = new_line + _ansi_color_reset_code
@@ -2675,10 +2676,21 @@ class _CustomTextWrap(textwrap.TextWrapper):
             # take each charcter's width into account
             chunk = reversed_chunks[-1]
             i = 1
-            while self._len(chunk[:i]) <= space_left:
+            # Only count printable characters, so strip_ansi first, index later.
+            while len(_strip_ansi(chunk)[:i]) <= space_left:
                 i = i + 1
-            cur_line.append(chunk[: i - 1])
-            reversed_chunks[-1] = chunk[i - 1 :]
+            # Consider escape codes when breaking words up
+            total_escape_len = 0
+            last_group = 0
+            if _ansi_codes.search(chunk) is not None:
+                for group, _, _, _ in _ansi_codes.findall(chunk):
+                    escape_len = len(group)
+                    if group in chunk[last_group: i + total_escape_len + escape_len - 1]:
+                        total_escape_len += escape_len
+                        found = _ansi_codes.search(chunk[last_group:])
+                        last_group += found.end()
+            cur_line.append(chunk[: i  + total_escape_len - 1])
+            reversed_chunks[-1] = chunk[i + total_escape_len - 1 :]
 
         # Otherwise, we have to preserve the long word intact.  Only add
         # it to the current line if there's nothing already there --
