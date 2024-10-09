@@ -933,7 +933,12 @@ def _isbool(string):
 def _type(string, has_invisible=True, numparse=True):
     """The least generic type (type(None), int, float, str, unicode).
 
+    Treats empty string as missing for the purposes of type deduction, so as to not influence
+    the type of an otherwise complete column; does *not* result in missingval replacement!
+
     >>> _type(None) is type(None)
+    True
+    >>> _type("") is type(None)
     True
     >>> _type("foo") is type("")
     True
@@ -949,15 +954,25 @@ def _type(string, has_invisible=True, numparse=True):
     if has_invisible and isinstance(string, (str, bytes)):
         string = _strip_ansi(string)
 
-    if string is None:
+    if string is None or (isinstance(string, (bytes, str)) and not string):
         return type(None)
     elif hasattr(string, "isoformat"):  # datetime.datetime, date, and time
         return str
     elif _isbool(string):
         return bool
-    elif _isint(string) and numparse:
+    elif numparse and (
+        _isint(string)
+        or (
+            isinstance(string, str)
+            and _isnumber_with_thousands_separator(string)
+            and "." not in string
+        )
+    ):
         return int
-    elif _isnumber(string) and numparse:
+    elif numparse and (
+        _isnumber(string)
+        or (isinstance(string, str) and _isnumber_with_thousands_separator(string))
+    ):
         return float
     elif isinstance(string, bytes):
         return bytes
@@ -1251,7 +1266,7 @@ def _column_type(strings, has_invisible=True, numparse=True):
 
 
 def _format(val, valtype, floatfmt, intfmt, missingval="", has_invisible=True):
-    """Format a value according to its type.
+    """Format a value according to its deduced type.  Empty values are deemed valid for any type.
 
     Unicode is supported:
 
@@ -1264,6 +1279,8 @@ def _format(val, valtype, floatfmt, intfmt, missingval="", has_invisible=True):
     """  # noqa
     if val is None:
         return missingval
+    if isinstance(val, (bytes, str)) and not val:
+        return ""
 
     if valtype is str:
         return f"{val}"
@@ -1298,6 +1315,8 @@ def _format(val, valtype, floatfmt, intfmt, missingval="", has_invisible=True):
             formatted_val = format(float(raw_val), floatfmt)
             return val.replace(raw_val, formatted_val)
         else:
+            if isinstance(val, str) and "," in val:
+                val = val.replace(",", "")  # handle thousands-separators
             return format(float(val), floatfmt)
     else:
         return f"{val}"
@@ -1592,9 +1611,10 @@ def _wrap_text_to_colwidths(list_of_lists, colwidths, numparses=True):
 
             if width is not None:
                 wrapper = _CustomTextWrap(width=width)
-                # Cast based on our internal type handling
-                # Any future custom formatting of types (such as datetimes)
-                # may need to be more explicit than just `str` of the object
+                # Cast based on our internal type handling. Any future custom
+                # formatting of types (such as datetimes) may need to be more
+                # explicit than just `str` of the object. Also doesn't work for
+                # custom floatfmt/intfmt, nor with any missing/blank cells.
                 casted_cell = (
                     str(cell) if _isnumber(cell) else _type(cell, numparse)(cell)
                 )
@@ -2549,7 +2569,6 @@ def _format_table(
         append_row = _append_basic_row
 
     padded_headers = pad_row(headers, pad)
-    padded_rows = [pad_row(row, pad) for row in rows]
 
     if fmt.lineabove and "lineabove" not in hidden:
         _append_line(lines, padded_widths, colaligns, fmt.lineabove)
@@ -2559,18 +2578,23 @@ def _format_table(
         if fmt.linebelowheader and "linebelowheader" not in hidden:
             _append_line(lines, padded_widths, colaligns, fmt.linebelowheader)
 
-    if padded_rows and fmt.linebetweenrows and "linebetweenrows" not in hidden:
+    if rows and fmt.linebetweenrows and "linebetweenrows" not in hidden:
         # initial rows with a line below
-        for row, ralign in zip(padded_rows[:-1], rowaligns):
+        for row, ralign in zip(rows[:-1], rowaligns):
             if row != SEPARATING_LINE:
                 append_row(
-                    lines, row, padded_widths, colaligns, fmt.datarow, rowalign=ralign
+                    lines,
+                    pad_row(row, pad),
+                    padded_widths,
+                    colaligns,
+                    fmt.datarow,
+                    rowalign=ralign,
                 )
             _append_line(lines, padded_widths, colaligns, fmt.linebetweenrows)
         # the last row without a line below
         append_row(
             lines,
-            padded_rows[-1],
+            pad_row(rows[-1], pad),
             padded_widths,
             colaligns,
             fmt.datarow,
@@ -2584,13 +2608,15 @@ def _format_table(
             or fmt.lineabove
             or Line("", "", "", "")
         )
-        for row in padded_rows:
+        for row in rows:
             # test to see if either the 1st column or the 2nd column (account for showindex) has
             # the SEPARATING_LINE flag
             if _is_separating_line(row):
                 _append_line(lines, padded_widths, colaligns, separating_line)
             else:
-                append_row(lines, row, padded_widths, colaligns, fmt.datarow)
+                append_row(
+                    lines, pad_row(row, pad), padded_widths, colaligns, fmt.datarow
+                )
 
     if fmt.linebelow and "linebelow" not in hidden:
         _append_line(lines, padded_widths, colaligns, fmt.linebelow)
@@ -2685,11 +2711,14 @@ class _CustomTextWrap(textwrap.TextWrapper):
             if _ansi_codes.search(chunk) is not None:
                 for group, _, _, _ in _ansi_codes.findall(chunk):
                     escape_len = len(group)
-                    if group in chunk[last_group: i + total_escape_len + escape_len - 1]:
+                    if (
+                        group
+                        in chunk[last_group : i + total_escape_len + escape_len - 1]
+                    ):
                         total_escape_len += escape_len
                         found = _ansi_codes.search(chunk[last_group:])
                         last_group += found.end()
-            cur_line.append(chunk[: i  + total_escape_len - 1])
+            cur_line.append(chunk[: i + total_escape_len - 1])
             reversed_chunks[-1] = chunk[i + total_escape_len - 1 :]
 
         # Otherwise, we have to preserve the long word intact.  Only add

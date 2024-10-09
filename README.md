@@ -53,7 +53,7 @@ pip install tabulate
 Build status
 ------------
 
-[![python-tabulate](https://github.com/astanin/python-tabulate/actions/workflows/tabulate.yml/badge.svg)](https://github.com/astanin/python-tabulate/actions/workflows/tabulate.yml) [![Build status](https://ci.appveyor.com/api/projects/status/8745yksvvol7h3d7/branch/master?svg=true)](https://ci.appveyor.com/project/astanin/python-tabulate/branch/master)
+[![python-tabulate](https://github.com/astanin/python-tabulate/actions/workflows/tabulate.yml/badge.svg)](https://github.com/astanin/python-tabulate/actions/workflows/tabulate.yml)
 
 Library usage
 -------------
@@ -1159,4 +1159,5 @@ Kian-Meng Ang, Kevin Patterson, Shodhan Save, cleoold, KOLANICH,
 Vijaya Krishna Kasula, Furcy Pin, Christian Fibich, Shaun Duncan,
 Dimitri Papadopoulos, Élie Goudout, Racerroar888, Phill Zarfos,
 Keyacom, Andrew Coffey, Arpit Jain, Israel Roldan, ilya112358,
-Dan Nicholson, Frederik Scheerer, cdar07 (cdar), Racerroar888.
+Dan Nicholson, Frederik Scheerer, cdar07 (cdar), Racerroar888,
+Perry Kundert.
